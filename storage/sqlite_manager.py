@@ -128,6 +128,27 @@ def fetch_bars(
     return _query(query, params)
 
 
+def fetch_recent_bars(table: str, symbol: str, limit: int) -> List[Dict[str, Any]]:
+    """Return the most recent ``limit`` bars for ``symbol`` ordered ascending."""
+
+    if table not in _ALLOWED_BAR_TABLES:
+        raise ValueError(f"Unsupported bars table: {table}")
+    if limit <= 0:
+        return []
+    query = (
+        f"SELECT * FROM {table} WHERE symbol = ? ORDER BY close_ts DESC LIMIT ?"
+    )
+    rows = _query(query, (symbol, limit))
+    return list(reversed(rows))
+
+
+def fetch_latest_bar(table: str, symbol: str) -> Optional[Dict[str, Any]]:
+    """Return the latest bar for a symbol or ``None`` when unavailable."""
+
+    result = fetch_recent_bars(table, symbol, limit=1)
+    return result[0] if result else None
+
+
 def insert_event(event: Dict[str, Any]) -> None:
     if "id" not in event:
         raise ValueError("event must include 'id'")
@@ -209,10 +230,43 @@ def list_tokens(enabled: Optional[bool] = None) -> List[Dict[str, Any]]:
     return _query(query, params)
 
 
+def fetch_undelivered_events(limit: int = 100) -> List[Dict[str, Any]]:
+    query = (
+        "SELECT * FROM events WHERE delivered = 0 ORDER BY created_at ASC LIMIT ?"
+    )
+    return _query(query, (limit,))
+
+
+def mark_event_delivered(event_id: str) -> None:
+    _execute("UPDATE events SET delivered = 1 WHERE id = ?", (event_id,))
+
+
+def get_cooldown_state(key: str) -> Optional[Dict[str, Any]]:
+    rows = _query("SELECT * FROM cooldown_state WHERE id = ?", (key,))
+    return rows[0] if rows else None
+
+
+def upsert_cooldown_state(
+    key: str,
+    symbol: str,
+    rule: str,
+    timeframe: str,
+    last_fire_ts: int,
+) -> None:
+    sql = (
+        "INSERT INTO cooldown_state (id, symbol, rule, timeframe, last_fire_ts)"
+        " VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET last_fire_ts=excluded.last_fire_ts"
+    )
+    _execute(sql, (key, symbol, rule, timeframe, last_fire_ts))
+
+
 __all__ = [
     "get_db_path",
     "upsert_bar",
     "fetch_bars",
+    "fetch_recent_bars",
+    "fetch_latest_bar",
     "insert_event",
     "set_kv",
     "get_kv",
@@ -220,4 +274,8 @@ __all__ = [
     "list_rules",
     "upsert_token",
     "list_tokens",
+    "fetch_undelivered_events",
+    "mark_event_delivered",
+    "get_cooldown_state",
+    "upsert_cooldown_state",
 ]
