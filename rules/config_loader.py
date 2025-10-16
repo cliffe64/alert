@@ -287,6 +287,7 @@ class AppConfig:
     price_alerts: Dict[str, List[PriceAlertRuleConfig]] = field(default_factory=dict)
     notifiers: NotifiersConfig = field(default_factory=NotifiersConfig)
     cooldown_minutes: int = 10
+    notification_rate_limit_minutes: int = 5
     ui: UIConfig = field(default_factory=UIConfig)
 
     @classmethod
@@ -302,6 +303,7 @@ class AppConfig:
             price_alerts[symbol] = [PriceAlertRuleConfig.from_dict(rule) for rule in rules]
         notifiers = NotifiersConfig.from_dict(data.get("notifiers"))
         cooldown = data.get("cooldown_minutes", 10)
+        rate_limit = data.get("notification_rate_limit_minutes", 5)
         ui = UIConfig.from_dict(data.get("ui"))
         return cls(
             symbols=list(data["symbols"]),
@@ -311,6 +313,7 @@ class AppConfig:
             price_alerts=price_alerts,
             notifiers=notifiers,
             cooldown_minutes=cooldown,
+            notification_rate_limit_minutes=rate_limit,
             ui=ui,
         )
 

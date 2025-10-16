@@ -27,6 +27,59 @@ python run.py --loop
 
 `--once` runs a single iteration of the pipeline, while `--loop` will start the long-running service (currently stubbed).
 
+### DingTalk Configuration
+
+Populate the following environment variables before running the router or demo scripts:
+
+```bash
+export DINGTALK_WEBHOOK="https://oapi.dingtalk.com/robot/send?access_token=..."
+export DINGTALK_SECRET="your-secret-if-enabled"
+```
+
+Update `.env` with these variables for local development. The router automatically skips delivery if the webhook is not configured.
+
+### Local Sound Notifier
+
+The standalone notifier keeps polling the SQLite `events` table and plays local audio once per event:
+
+```bash
+python -m agent.local_notifier --client-id workstation-1 --poll-interval 5 --min-severity warning
+python -m agent.local_notifier --self-test
+```
+
+State is persisted in the `local_notifier_state` table so that no alerts are missed across restarts.
+
+### Docker & Compose
+
+Build and launch the service/UI stack with the provided artifacts:
+
+```bash
+make docker-build
+docker-compose up --build
+```
+
+The SQLite database is stored inside the `alert-data` volume and mounted into both the core service and Streamlit UI containers.
+
+### Demo Data
+
+To try the full pipeline without live market data, load the bundled sample dataset:
+
+```bash
+make demo
+```
+
+This command recreates the database schema, ingests demo 1m bars, runs rollups, triggers rules, and dispatches notifications to the configured channels (local playback/DingTalk if available).
+
+### Backtest Utilities
+
+Replay historical events and generate performance statistics/plots:
+
+```bash
+python -m backtest.replay --symbols BTCUSDT,ETHUSDT --days 7 --timeframe 5m
+```
+
+Outputs are written to `backtest/out/` including per-event CSV, summary CSV, and a return distribution chart.
+
 ## Project Structure
 ```
 connectors/            # Market data adapters
