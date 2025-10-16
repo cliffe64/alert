@@ -1,0 +1,12 @@
+apscheduler
+websockets
+httpx
+pydantic
+pandas
+numpy
+sqlalchemy
+python-dotenv
+streamlit
+pydantic-settings
+matplotlib
+pytest
