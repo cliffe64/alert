@@ -236,3 +236,49 @@ def test_unique_constraint_violation(temp_db: Path) -> None:
                 ),
             )
             conn.commit()
+
+
+def test_fetch_events_since_and_state(temp_db: Path) -> None:
+    now = int(time.time())
+    base_event = {
+        "id": "evt-state-1",
+        "ts": now,
+        "symbol": "BTCUSDT",
+        "source": "dex",
+        "exchange": "pancake",
+        "timeframe": "5m",
+        "rule": "test",
+        "severity": "info",
+        "message": "hello",
+        "detail_json": "{}",
+        "created_at": now,
+        "delivered": 0,
+    }
+    sqlite_manager.insert_event(base_event)
+    second = dict(base_event)
+    second.update(
+        {
+            "id": "evt-state-2",
+            "severity": "warning",
+            "created_at": now + 10,
+        }
+    )
+    sqlite_manager.insert_event(second)
+
+    events = sqlite_manager.fetch_events_since(None, min_severity="warning")
+    assert len(events) == 1
+    assert events[0]["id"] == "evt-state-2"
+
+    sqlite_manager.update_local_notifier_state("client", second["id"], second["created_at"], now + 20)
+    state = sqlite_manager.get_local_notifier_state("client")
+    assert state is not None
+    assert state["last_event_id"] == "evt-state-2"
+
+
+def test_rate_limit_helpers(temp_db: Path) -> None:
+    key = "BTCUSDT|rule|5m"
+    now = int(time.time())
+    assert not sqlite_manager.should_rate_limit(key, 60, now)
+    sqlite_manager.update_rate_limit_timestamp(key, now)
+    assert sqlite_manager.should_rate_limit(key, 60, now + 30)
+    assert not sqlite_manager.should_rate_limit(key, 60, now + 61)

@@ -9,7 +9,7 @@ from typing import Awaitable, Callable
 
 from aggregator.rollup import rollup_bars
 from alerts.router import dispatch_new_events
-from connectors import start_binance_stream
+from connectors import start_binance_stream, sync_registered_tokens
 from rules.config_loader import load_config
 from rules.price_alerts import scan_price_alerts
 from rules.trend_channel import scan_trend_channel
@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run_once() -> None:
+    await sync_registered_tokens()
     await asyncio.to_thread(rollup_bars, "bars_1m", "bars_5m", 5)
     await asyncio.to_thread(rollup_bars, "bars_1m", "bars_15m", 15)
     await asyncio.to_thread(run_volume_spike, "5m")
@@ -75,10 +76,18 @@ async def _notify_task() -> None:
     await _periodic("notify", 5, dispatch_new_events)
 
 
+async def _dex_task() -> None:
+    async def _run() -> None:
+        await sync_registered_tokens()
+
+    await _periodic("dex", 60, _run)
+
+
 async def loop_forever() -> None:
     config = load_config()
     tasks = [
         asyncio.create_task(start_binance_stream(config.symbols), name="binance"),
+        asyncio.create_task(_dex_task(), name="dex"),
         asyncio.create_task(_rollup_task(), name="rollup"),
         asyncio.create_task(_rules_task(), name="rules"),
         asyncio.create_task(_notify_task(), name="notify"),

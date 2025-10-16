@@ -9,7 +9,12 @@ from typing import Optional
 
 from alerts import dingtalk, local_sound
 from rules.config_loader import AppConfig, load_config
-from storage.sqlite_manager import fetch_undelivered_events, mark_event_delivered
+from storage.sqlite_manager import (
+    fetch_undelivered_events,
+    mark_event_delivered,
+    should_rate_limit,
+    update_rate_limit_timestamp,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -56,16 +61,28 @@ def _deliver_sound(config: AppConfig, event: dict) -> None:
     local_sound.play(notifier.sound_file, notifier.volume)
 
 
+def _rate_limit_key(event: dict) -> str:
+    return f"{event.get('symbol')}|{event.get('rule')}|{event.get('timeframe')}"
+
+
 async def dispatch_new_events(config: Optional[AppConfig] = None) -> int:
     """Send undelivered events to configured notifiers."""
 
     cfg = config or load_config()
     events = fetch_undelivered_events()
     delivered = 0
+    window = max(cfg.notification_rate_limit_minutes, 0) * 60
     for event in events:
+        event_ts = int(event.get("ts") or datetime.now(timezone.utc).timestamp())
+        key = _rate_limit_key(event)
+        if should_rate_limit(key, window, event_ts):
+            LOGGER.info("Skip notification due to rate limit: %s", key)
+            mark_event_delivered(event["id"])
+            continue
         success = await _deliver_dingtalk(cfg, event)
         if success:
             _deliver_sound(cfg, event)
+            update_rate_limit_timestamp(key, event_ts)
             mark_event_delivered(event["id"])
             delivered += 1
     return delivered

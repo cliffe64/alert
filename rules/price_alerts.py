@@ -79,9 +79,10 @@ def _atr_breakout(rule: Dict[str, object], price: float) -> bool:
     return abs(price - ema_last) >= k * atr_last
 
 
-def _apply_hysteresis(rule: Dict[str, object], price: float, state: Dict[str, object]) -> None:
-    if state.get("armed", True):
-        return
+def _apply_hysteresis(rule: Dict[str, object], price: float, state: Dict[str, object]) -> bool:
+    was_armed = state.get("armed", True)
+    if was_armed:
+        return False
     level = float(rule.get("level") or price)
     hysteresis = rule.get("hysteresis")
     hysteresis_pct = rule.get("hysteresis_pct")
@@ -105,6 +106,8 @@ def _apply_hysteresis(rule: Dict[str, object], price: float, state: Dict[str, ob
     elif rule_type.startswith("pct"):
         baseline = state.get("baseline", level)
         state["armed"] = price <= baseline if "up" in rule_type else price >= baseline
+
+    return (not was_armed) and state.get("armed", True)
 
 
 def _confirm(rule: Dict[str, object], condition: bool, state: Dict[str, object], now_ts: int) -> bool:
@@ -165,7 +168,18 @@ def scan_price_alerts(now_ts: Optional[int] = None) -> List[Dict[str, object]]:
         if price is None:
             continue
         state = _load_state(rule["id"])
-        _apply_hysteresis(rule, price, state)
+        rule_type = rule["type"]
+        baseline_initialized = "baseline" in state
+        rearmed = _apply_hysteresis(rule, price, state)
+        if rule_type in {"pct_up", "pct_down"}:
+            if rearmed or not baseline_initialized:
+                state["baseline"] = price
+                state["baseline_ts"] = now
+                _save_state(rule["id"], state, now)
+            if not baseline_initialized:
+                # Establish a baseline before the first evaluation so future
+                # samples compare against a fixed reference.
+                continue
         if not state.get("armed", True):
             _save_state(rule["id"], state, now)
             continue

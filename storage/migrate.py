@@ -95,6 +95,20 @@ CREATE_TABLE_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS local_notifier_state (
+        id TEXT PRIMARY KEY,
+        last_event_id TEXT,
+        last_created_at INTEGER,
+        updated_at INTEGER
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS notification_limiter (
+        id TEXT PRIMARY KEY,
+        last_sent_ts INTEGER
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS price_alert_rules (
         id TEXT PRIMARY KEY,
         symbol TEXT,

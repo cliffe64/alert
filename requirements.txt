@@ -3,6 +3,7 @@ apscheduler
 websockets
 httpx
 pydantic
+pyyaml
 pandas
 numpy
 sqlalchemy

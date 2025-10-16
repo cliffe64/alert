@@ -7,6 +7,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, Iterable, List, Optional
 
+_SEVERITY_ORDER = {"info": 0, "warning": 1, "error": 2, "critical": 3}
+
 _DB_PATH_ENV = "ALERT_DB_PATH"
 _DEFAULT_DB_FILENAME = "alert.db"
 _ALLOWED_BAR_TABLES = {"bars_1m", "bars_5m", "bars_15m"}
@@ -241,6 +243,110 @@ def mark_event_delivered(event_id: str) -> None:
     _execute("UPDATE events SET delivered = 1 WHERE id = ?", (event_id,))
 
 
+def fetch_events_since(
+    created_after: Optional[int],
+    limit: int = 100,
+    min_severity: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch events created after ``created_after`` sorted ascending."""
+
+    query = "SELECT * FROM events WHERE 1=1"
+    params: List[Any] = []
+    if created_after is not None:
+        query += " AND created_at > ?"
+        params.append(created_after)
+    query += " ORDER BY created_at ASC LIMIT ?"
+    params.append(limit)
+    events = _query(query, params)
+    if min_severity is None:
+        return events
+    threshold = _SEVERITY_ORDER.get(min_severity.lower(), 0)
+    filtered: List[Dict[str, Any]] = []
+    for event in events:
+        rank = _SEVERITY_ORDER.get(str(event.get("severity", "")).lower(), 0)
+        if rank >= threshold:
+            filtered.append(event)
+    return filtered
+
+
+def list_events(
+    timeframe: Optional[str] = None,
+    symbols: Optional[Iterable[str]] = None,
+    since_ts: Optional[int] = None,
+    rules: Optional[Iterable[str]] = None,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """List events ordered by timestamp."""
+
+    query = "SELECT * FROM events WHERE 1=1"
+    params: List[Any] = []
+    if timeframe:
+        query += " AND timeframe = ?"
+        params.append(timeframe)
+    if symbols:
+        placeholders = ",".join(["?" for _ in symbols])
+        query += f" AND symbol IN ({placeholders})"
+        params.extend(symbols)
+    if rules:
+        placeholders = ",".join(["?" for _ in rules])
+        query += f" AND rule IN ({placeholders})"
+        params.extend(rules)
+    if since_ts is not None:
+        query += " AND ts >= ?"
+        params.append(since_ts)
+    query += " ORDER BY ts ASC"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
+    return _query(query, params)
+
+
+def get_local_notifier_state(client_id: str) -> Optional[Dict[str, Any]]:
+    rows = _query(
+        "SELECT * FROM local_notifier_state WHERE id = ?",
+        (client_id,),
+    )
+    return rows[0] if rows else None
+
+
+def update_local_notifier_state(
+    client_id: str,
+    last_event_id: Optional[str],
+    last_created_at: Optional[int],
+    updated_at: int,
+) -> None:
+    sql = (
+        "INSERT INTO local_notifier_state (id, last_event_id, last_created_at, updated_at)"
+        " VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET "
+        "last_event_id=excluded.last_event_id, "
+        "last_created_at=excluded.last_created_at, "
+        "updated_at=excluded.updated_at"
+    )
+    _execute(sql, (client_id, last_event_id, last_created_at, updated_at))
+
+
+def should_rate_limit(key: str, window_seconds: int, now_ts: int) -> bool:
+    if window_seconds <= 0:
+        return False
+    rows = _query(
+        "SELECT last_sent_ts FROM notification_limiter WHERE id = ?",
+        (key,),
+    )
+    if not rows:
+        return False
+    last_sent = rows[0]["last_sent_ts"] or 0
+    return now_ts - int(last_sent) < window_seconds
+
+
+def update_rate_limit_timestamp(key: str, now_ts: int) -> None:
+    sql = (
+        "INSERT INTO notification_limiter (id, last_sent_ts) VALUES (?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET last_sent_ts=excluded.last_sent_ts"
+    )
+    _execute(sql, (key, now_ts))
+
+
 def get_cooldown_state(key: str) -> Optional[Dict[str, Any]]:
     rows = _query("SELECT * FROM cooldown_state WHERE id = ?", (key,))
     return rows[0] if rows else None
@@ -276,6 +382,12 @@ __all__ = [
     "list_tokens",
     "fetch_undelivered_events",
     "mark_event_delivered",
+    "fetch_events_since",
+    "list_events",
+    "get_local_notifier_state",
+    "update_local_notifier_state",
+    "should_rate_limit",
+    "update_rate_limit_timestamp",
     "get_cooldown_state",
     "upsert_cooldown_state",
 ]
